@@ -1,3 +1,0 @@
-﻿cl : Command line warning D9035: option 'Gm' has been deprecated and will be removed in a future release
-  example.c
-  example.vcxproj -> D:\_Git_D\ms\cudamon\lib\nvml\example\x64\Debug\example.exe

@@ -78,29 +78,43 @@ BOOL QueryDeviceHardware(unsigned int deviceId, nvmlDevice_t device)
 BOOL QueryDeviceUsermodeProcessStatistics(unsigned int deviceId, nvmlDevice_t device, GpuProcessStatistics * pProcStatsArray)
 {
 	nvmlReturn_t result;
-	unsigned int process_count = 0; 
-	unsigned int pids = 0;
-	nvmlEnableState_t accounting_mode = 0;
+	unsigned int infoCount = 0;
+	nvmlProcessInfo_t* infos = NULL;
 
-	result = nvmlDeviceGetAccountingMode(device, &accounting_mode);
-	if (NVML_SUCCESS != result)
+	result = nvmlDeviceGetComputeRunningProcesses(device, &infoCount, NULL);
+	if (NVML_SUCCESS == result)
 	{
-		MSG("ERROR: Failed to query nvmlDeviceSetAccountingMode: %s\n", nvmlErrorString(result));
-		return FALSE;
+		// No process running 
+		MSG("- No processes running\n");
+		return TRUE;
 	}
 
-	MSG("- accounting_mode = %u\n", accounting_mode);
-
-	result = nvmlDeviceGetAccountingPids(device, &process_count, &pids);
-	if (NVML_SUCCESS != result)
+	if (NVML_ERROR_INSUFFICIENT_SIZE != result)
 	{
-		MSG("ERROR: Failed to query nvmlDeviceGetAccountingPids: %s\n", nvmlErrorString(result));
-		return FALSE;
+		MSG("ERROR: Failed to query nvmlDeviceGetComputeRunningProcesses: %s\n", nvmlErrorString(result));
+		goto Error;
 	}
 
-	MSG("- count = %u, pids = %u\n", process_count, pids);
+	infos = (nvmlProcessInfo_t*)calloc(infoCount, sizeof(nvmlProcessInfo_t));
+	result = nvmlDeviceGetComputeRunningProcesses(device, &infoCount, infos);
+	if ((NVML_SUCCESS != result) && (NVML_ERROR_INSUFFICIENT_SIZE != result))
+	{
+		MSG("ERROR: Failed to query nvmlDeviceGetComputeRunningProcesses: %s\n", nvmlErrorString(result));
+		goto Error;
+	}
 
+	for (int i = 0; i < (int)infoCount; i++)
+	{
+		MSG("- processInfo[%d]: pid = %u, usedGpuMemory = %I64u\n", i, infos[i].pid, infos[i].usedGpuMemory);
+	}
+
+	free(infos);
 	return TRUE;
+
+Error:
+
+	free(infos);
+	return FALSE;
 }
 
 
