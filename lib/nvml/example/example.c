@@ -2,15 +2,15 @@
 #include <Windows.h>
 #include <nvml.h>
 
-const BOOL bTraceEnabled = TRUE;
+const BOOL bTraceEnabled = FALSE;
 
 #define MSG(...) { if (bTraceEnabled) { printf(__VA_ARGS__); } }
 
 typedef struct GpuProcessStatisticsT
 {
 	DWORD processID;
-	int powerUsage;
-	int memoryUsageInBytes;
+	unsigned int powerUsage;
+	unsigned long long memoryUsageInBytes;
 } GpuProcessStatistics;
 
 
@@ -80,6 +80,14 @@ BOOL QueryDeviceUsermodeProcessStatistics(unsigned int deviceId, nvmlDevice_t de
 	nvmlReturn_t result;
 	unsigned int infoCount = 0;
 	nvmlProcessInfo_t* infos = NULL;
+	unsigned int power = 0;
+
+	result = nvmlDeviceGetPowerUsage(device, &power);
+	if (NVML_SUCCESS != result)
+	{
+		MSG("ERROR: Failed to query nvmlDeviceGetPowerUsage: %s\n", nvmlErrorString(result));
+		goto Error;
+	}
 
 	result = nvmlDeviceGetComputeRunningProcesses(device, &infoCount, NULL);
 	if (NVML_SUCCESS == result)
@@ -103,10 +111,21 @@ BOOL QueryDeviceUsermodeProcessStatistics(unsigned int deviceId, nvmlDevice_t de
 		goto Error;
 	}
 
+	unsigned int pid = 0;
+	unsigned long long totalGpuMemUsage = 0;
 	for (int i = 0; i < (int)infoCount; i++)
 	{
 		MSG("- processInfo[%d]: pid = %u, usedGpuMemory = %I64u\n", i, infos[i].pid, infos[i].usedGpuMemory);
+		totalGpuMemUsage += infos[i].usedGpuMemory;
+
+		// Get the last PID and assume that it consumes all the memory on the GPU
+		// We need to do this since GPUMCM current counter code does not support accounting for more than one process per GPU 
+		pid = infos[i].pid;
 	}
+
+	pProcStatsArray->processID = pid;
+	pProcStatsArray->memoryUsageInBytes = totalGpuMemUsage;
+	pProcStatsArray->powerUsage = power;
 
 	free(infos);
 	return TRUE;
@@ -168,7 +187,6 @@ int main()
 			goto Error;
 		}
 
-
 		res = QueryDeviceUsermodeProcessStatistics(deviceId, device, &(pProcStatsArray[deviceId]));
 		if (!res)
 		{
@@ -176,6 +194,19 @@ int main()
 			goto Error;
 		}
     }
+
+	for (deviceId = 0; deviceId < device_count; deviceId++)
+	{
+		printf("%sGpuIndex=%u,ProcessId=%u,PowerUsage=%u,MemoryUsageInBytes=%I64u",
+			(deviceId > 0)? ";":"", 
+			deviceId,
+			pProcStatsArray[deviceId].processID,
+			pProcStatsArray[deviceId].powerUsage,
+			pProcStatsArray[deviceId].memoryUsageInBytes
+		);
+	}
+
+	printf("\n");
 
     result = nvmlShutdown();
     if (NVML_SUCCESS != result)
